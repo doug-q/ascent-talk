@@ -1,0 +1,326 @@
+#+TITLE: Dataflow Analysis of ~Hugr~​s with ~ascent~
+#+AUTHOR: \href{mailto:douglas.wilson@quantinuum.com}{Douglas Wilson}
+#+OPTIONS: H:2 toc:t num:t
+#+LATEX_CLASS: beamer
+#+LATEX_CLASS_OPTIONS: [presentation]
+#+BEAMER_THEME: Madrid
+#+bibliography: bib.bib
+
+* prelude :noexport:
+#+begin_src elisp
+(add-to-list 'org-beamer-environments-extra
+	     '("onlyenv" "O" "\\begin{onlyenv}%a" "\\end{onlyenv}"))
+(add-to-list 'org-latex-packages-alist '("" "minted"))
+(setq org-latex-listings 'minted)
+
+(setq org-latex-pdf-process
+      '("pdflatex -shell-escape -interaction nonstopmode -output-directory %o %f"
+        "pdflatex -shell-escape -interaction nonstopmode -output-directory %o %f"
+        "pdflatex -shell-escape -interaction nonstopmode -output-directory %o %f"))
+
+#+end_src
+
+#+RESULTS:
+| pdflatex -shell-escape -interaction nonstopmode -output-directory %o %f | pdflatex -shell-escape -interaction nonstopmode -output-directory %o %f | pdflatex -shell-escape -interaction nonstopmode -output-directory %o %f |
+
+
+* Datalog
+** Example
+:PROPERTIES:
+:BEAMER_env: onlyenv
+:BEAMER_act: 1-
+:END:
+#+begin_src rust
+ascent! {
+   relation edge(i32, i32);
+   relation path(i32, i32);
+
+   path(x, y) <-- edge(x, y);
+   path(x, z) <-- edge(x, y), path(y, z);
+}
+#+end_src
+
+*** Overview
+:PROPERTIES:
+:BEAMER_env: onlyenv
+:BEAMER_act: 1
+:END:
+- Here is an example that, given the edges of a directed graph, computes whether a path exists between any two nodes.
+
+- A datalog program is a collection of /Horn Clauses/[cite:@Horn_1951].
+
+- The most mature open source implementation of Datalog is /souffle/[cite:@10.1145/2892208.2892226; @Jordan2016SoufflOS]. It works by generating ~C++~ code from a Datalog program.
+*** Solver
+:PROPERTIES:
+:BEAMER_env: onlyenv
+:BEAMER_act: 2
+:END:
+
+ - Think of relations as sets of facts.
+ - A datalog solver computes all true facts from a set of initial facts.
+ - A datalog solver mutates relations as it iterates
+ - This mutation is /monotone/: once a fact exists, it will always exist.
+
+*** ~ascent~
+:PROPERTIES:
+:BEAMER_env: onlyenv
+:BEAMER_act: 3
+:END:
+~ascent~ [cite:@ascent1] is an implementation of Datalog via ~rust~ proc-macro.
+
+#+begin_src rust
+fn main() {
+   let mut prog = AscentProgram::default();
+   prog.edge = vec![(1, 2), (2, 3)];
+   prog.run();
+   println!("path: {:?}", prog.path);
+}
+#+end_src
+
+*** Tractable
+:PROPERTIES:
+:BEAMER_env: onlyenv
+:BEAMER_act: 4
+:END:
+
+Datalog is tractable to solve because of /semi-naive evaluation/. Once a fact exists it always exists, therefore during an iteration we know that any new fact we find must depend on a fact that we discovered in the previous iteration.
+
+** Conditions and Generative Clauses
+#+begin_src rust
+ascent! {
+   relation node(i32, Rc<Vec<i32>>);
+   relation edge(i32, i32);
+
+   edge(x, y) <--
+      node(x, neighbors),
+      for &y in neighbors.iter(),
+      if x != y;
+}
+#+end_src
+
+
+
+
+
+
+** Negation and Aggregation
+#+begin_src rust
+use ascent::aggregators::*;
+type Student = u32;
+type Course = u32;
+type Grade = u16;
+ascent! {
+   relation student(Student);
+   relation course_grade(Student, Course, Grade);
+   relation avg_grade(Student, Grade);
+
+   avg_grade(s, avg as Grade) <--
+      student(s),
+      agg avg = mean(g) in course_grade(s, _, g);
+}
+#+end_src
+
+** Lattices
+A /Lattice/ is a partial order equipped with:
+ - a binary operation /join/, or least upper bound;
+ - a binary operation /meet/, or greatest lower bound.
+
+A /Bounded Lattice/ has a unique maximum element, called /top/ or $\top$ and a unique minimum element called /bottom/ or $\bot$.
+
+** Lattices In ~ascent~
+#+begin_src rust
+ascent! {
+   lattice shortest_path(i32, i32, Dual<u32>);
+   relation edge(i32, i32, u32);
+
+   shortest_path(x, y, Dual(*w)) <-- edge(x, y, w);
+
+   shortest_path(x, z, Dual(w + l)) <--
+      edge(x, y, w),
+      shortest_path(y, z, ?Dual(l));
+}
+#+end_src
+
+- a member of a /lattice/ $(k, L)$ is a fact that implies that $(k,l), l \leq L$ is a fact.
+- ~Dual~ is a newtype wrapper that swaps /meet/ and /join/. Unfortunately ~longest_path~ will fail to terminate on any graph with cycles.
+
+** Pluggable data structures in ~ascent~
+An eqivilence relation:
+#+begin_src rust
+ascent! {
+    relation rel(u32, u32);
+    rel(a,b) <- rel(b, a)
+    rel(a,c) <- rel(a, b), rel(b, c)
+}
+#+end_src
+will create $N^2$ facts.
+
+We can store those facts using only $N$ using a /union-find/ data structure:
+#+begin_src rust
+ascent! {
+    #[ds(rels_ascent::eqrel)]
+    relation rel(u32, u32);
+    // ...
+}
+#+end_src
+
+** Pluggable data structures in ~ascent~
+[cite:@10.1145/3622840] describes an interface to store relations in user-defined data structures.
+
+Users implement several macros, which are then expanded by the ~ascent!~ macro.
+
+** Performance
+TODO
+
+** Why use a Datalog solver at all?
+- Split one hard problem into two slightly easier problems:
+  - A Datalog solver
+  - A Datalog program
+
+Separate the specification and the implementation of your problem.
+
+** Downsides of ~ascent~
+- the proc-macro implementation seems to make it difficult to write an extensible tool.
+
+* An important quantum optimisation problem
+** Can't optimise this
+#+begin_src python
+@guppy
+def circuit(q: Qubit) -> Qubit:
+    i = 0
+    while i < 2:
+        u = h(Qubit())
+        if i % 2 == 0:
+            q, u = cx(q, u)
+        else:
+            q, u = cy(q, u)
+        i = i + 1
+        u.free()
+    return q
+#+end_src
+
+** Can optimise this
+#+begin_src python
+@guppy
+def circuit(q: Qubit) -> Qubit:
+  u1, u2 = (Qubit(), Qubit())
+  u1 = h(u1)
+  q, u1 = cx(q, u1)
+  u2 = h(u2)
+  q, u2 = cy(q, u2)
+  u1.free()
+  u2.free()
+  return q
+#+end_src
+
+** Dataflow analysis
+/Dataflow Analysis/ is a general technique for static program analysis. /SSA/ is particularly well suited for this:
+ - Choose a /Lattice/ type with a /bottom/.
+ - Assign $\bot$ to each edge. (i.e. each "value" in an SSA graph)
+ - Define a /transfer function/ that takes a node and Lattice values for each of its edges, and returns Lattice values for each of its edges.
+ - Apply the transfer function to each node and mutate the Lattice values for each of its edges by /joining/ with the result of the transfer function.
+ - Iterate the previous step until you reach a fixed point.
+** Liveness Analysis
+Lattice: Define $\bot$ to be /Dead/ and $\top$ to be /Live/.
+
+Transfer function: The arguments of ~return~ are /Live/, the arguments of any node with /Live/ results are /Live/.
+
+#+begin_src python
+@guppy
+def circuit(q: Qubit, theta: float) -> Qubit: # theta is dead
+    theta = -theta
+    return q # q is live
+#+end_src
+
+
+** Constant Value Propagation
+*** Constant Value
+:PROPERTIES:
+:BEAMER_env: onlyenv
+:BEAMER_act: 1-
+:END:
+
+Define the following lattice:
+
+#+begin_src rust
+enum ConstantValue { Bottom, Value(u64), Top }
+fn join(lhs: ConstantValue, rhs: ConstantValue) -> ConstantValue {
+  match (lhs, rhs) {
+    (Bottom, x) => x,
+    (x, Bottom) => x,
+    (Value(x), Value(y)) if x == y => Value(x),
+    _ => Top
+  }
+}
+#+end_src
+
+*** Transfer Function
+:PROPERTIES:
+:BEAMER_env: onlyenv
+:BEAMER_act: 1
+:END:
+
+Transfer Function: this is constant folding.
+
+Consider:
+- add(Value(x),Value(y))
+- mult(Top,Value(0))
+
+*** Reachablity
+:PROPERTIES:
+:BEAMER_env: onlyenv
+:BEAMER_act: 2
+:END:
+
+- After iterating the transfer function, if any node has a $\bot$ input, then that node is /Unreachable/. Perhaps it is in the /else/ branch of an always-true /if/ statement.
+
+  - Theorem: Values of type /The sum of zero variants/ (also called $\bot$). Will always be assigned the lattice value $\bot$.
+
+- Liveness analysis should only mark the inputs of /Reachable/ ~return~ statements.
+
+** PartialValue
+#+begin_src rust
+enum PartialValue {
+    Bottom,
+    Value(hugr::ops::Value),
+    PartialSum(HashSet<usize, Vec<PartialValue>>),
+    Top
+}
+#+end_src
+
+- /PartialValue/ refines the idea of /ConstantValue/ to try a little bit harder to not /join/ to $\top$.
+
+- /PartialSum/ keeps track of which variant it might be, and what those variant's values might be.
+
+- In a /Hugr/ all non-function call control flow is controlled by the /tag/ of a variant.
+  - Conditional
+  - TailLoop
+  - CFG (arbitrary control flow graph)
+
+- Let's look at ~dataflow.rs~ in https://github.com/CQCL/hugr/tree/doug/const-fold2-talk
+
+** Loop unrolling
+
+Imagine a function:
+
+#+begin_src rust
+/// Apply constant value propagation to the inner DFG of a
+/// dataflow parent, using `in_values` as the values for the
+/// `Input` node. Returns the values for the `Output` node
+pub fn cvp_dataflow_parent(hugr: &Hugr, dataflow_parent: Node,
+        in_values: Vec[PartialValue]) -> Vec[PartialValue];
+#+end_src
+
+We can use this to unroll a ~TailLoop~ node ~tl~:
+ - Do constant value propagation on the ~hugr: Hugr~, and retrieve the input values for the ~tl~.
+   - Call ~let out_values = cvp_dataflow_parent(hugr, tl, in_values);~.
+   - if ~!out_values[0].supports_tag(1)~ then the tailloop is proven to iterate at least once.
+   - Create a ~DFG~ before ~tl~, containing a copy of ~tl~, wired up to the old inputs of ~tl~, and with its
+     outputs becoming the new inputs of ~tl~.
+   - set ~in_values = out_values~ and iterate.
+
+* Conclusion
+- Dataflow Analysis is a useful tool and Hugrs are well suited for it to be
+  directly applied. [cite:@HugrDatalog]
+- Constant Value Propagation is strong enough to unroll loops in Hugr.
+- It is not clear whether ~ascent~ is an appropriate tool. How can write modular interdependent analases?.

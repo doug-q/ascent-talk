@@ -1,0 +1,328 @@
+% Created 2024-06-27 Thu 15:24
+% Intended LaTeX compiler: pdflatex
+\documentclass[presentation]{beamer}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+\usepackage{longtable}
+\usepackage{wrapfig}
+\usepackage{rotating}
+\usepackage[normalem]{ulem}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{capt-of}
+\usepackage{hyperref}
+\usepackage{minted}
+\usetheme{Madrid}
+\author{\href{mailto:douglas.wilson@quantinuum.com}{Douglas Wilson}}
+\date{\today}
+\title{Dataflow Analysis of \texttt{Hugr}​s with \texttt{ascent}}
+\hypersetup{
+ pdfauthor={\href{mailto:douglas.wilson@quantinuum.com}{Douglas Wilson}},
+ pdftitle={Dataflow Analysis of \texttt{Hugr}​s with \texttt{ascent}},
+ pdfkeywords={},
+ pdfsubject={},
+ pdfcreator={Emacs 29.3 (Org mode 9.8)}, 
+ pdflang={English}}
+\begin{document}
+
+\maketitle
+\begin{frame}{Outline}
+\tableofcontents
+\end{frame}
+
+\section{Datalog}
+\label{sec:org7223913}
+\begin{frame}<1->[label={sec:orgee00de9},fragile]{Example}
+ \begin{minted}[]{rust}
+ascent! {
+   relation edge(i32, i32);
+   relation path(i32, i32);
+
+   path(x, y) <-- edge(x, y);
+   path(x, z) <-- edge(x, y), path(y, z);
+}
+\end{minted}
+\begin{onlyenv}<1>
+\begin{itemize}
+\item Here is an example that, given the edges of a directed graph, computes whether a path exists between any two nodes.
+
+\item A datalog program is a collection of \emph{Horn Clauses}(Horn, Alfred, 1951).
+
+\item The most mature open source implementation of Datalog is \emph{souffle}(Scholz, Bernhard and Jordan, Herbert and Suboti\'{c}, Pavle and Westmann, Till, 2016,  Herbert Jordan and Bernhard Scholz and Pavle Suboti{\'c}, 2016). It works by generating \texttt{C++} code from a Datalog program.
+\end{itemize}
+\end{onlyenv}
+\begin{onlyenv}<2>
+\begin{itemize}
+\item Think of relations as sets of facts.
+\item A datalog solver computes all true facts from a set of initial facts.
+\item A datalog solver mutates relations as it iterates
+\item This mutation is \emph{monotone}: once a fact exists, it will always exist.
+\end{itemize}
+\end{onlyenv}
+\begin{onlyenv}<3>
+\texttt{ascent} (Sahebolamri, Arash and Gilray, Thomas and Micinski, Kristopher, 2022) is an implementation of Datalog via \texttt{rust} proc-macro.
+
+\begin{minted}[]{rust}
+fn main() {
+   let mut prog = AscentProgram::default();
+   prog.edge = vec![(1, 2), (2, 3)];
+   prog.run();
+   println!("path: {:?}", prog.path);
+}
+\end{minted}
+\end{onlyenv}
+\begin{onlyenv}<4>
+Datalog is tractable to solve because of \emph{semi-naive evaluation}. Once a fact exists it always exists, therefore during an iteration we know that any new fact we find must depend on a fact that we discovered in the previous iteration.
+\end{onlyenv}
+\end{frame}
+\begin{frame}[label={sec:org276e755},fragile]{Conditions and Generative Clauses}
+ \begin{minted}[]{rust}
+ascent! {
+   relation node(i32, Rc<Vec<i32>>);
+   relation edge(i32, i32);
+
+   edge(x, y) <--
+      node(x, neighbors),
+      for &y in neighbors.iter(),
+      if x != y;
+}
+\end{minted}
+\end{frame}
+\begin{frame}[label={sec:orge56f7f8},fragile]{Negation and Aggregation}
+ \begin{minted}[]{rust}
+use ascent::aggregators::*;
+type Student = u32;
+type Course = u32;
+type Grade = u16;
+ascent! {
+   relation student(Student);
+   relation course_grade(Student, Course, Grade);
+   relation avg_grade(Student, Grade);
+
+   avg_grade(s, avg as Grade) <--
+      student(s),
+      agg avg = mean(g) in course_grade(s, _, g);
+}
+\end{minted}
+\end{frame}
+\begin{frame}[label={sec:orgdd26c00}]{Lattices}
+A \emph{Lattice} is a partial order equipped with:
+\begin{itemize}
+\item a binary operation \emph{join}, or least upper bound;
+\item a binary operation \emph{meet}, or greatest lower bound.
+\end{itemize}
+
+A \emph{Bounded Lattice} has a unique maximum element, called \emph{top} or \(\top\) and a unique minimum element called \emph{bottom} or \(\bot\).
+\end{frame}
+\begin{frame}[label={sec:orgbadc3c1},fragile]{Lattices In \texttt{ascent}}
+ \begin{minted}[]{rust}
+ascent! {
+   lattice shortest_path(i32, i32, Dual<u32>);
+   relation edge(i32, i32, u32);
+
+   shortest_path(x, y, Dual(*w)) <-- edge(x, y, w);
+
+   shortest_path(x, z, Dual(w + l)) <--
+      edge(x, y, w),
+      shortest_path(y, z, ?Dual(l));
+}
+\end{minted}
+
+\begin{itemize}
+\item a member of a \emph{lattice} \((k, L)\) is a fact that implies that \((k,l), l \leq L\) is a fact.
+\item \texttt{Dual} is a newtype wrapper that swaps \emph{meet} and \emph{join}. Unfortunately \texttt{longest\_path} will fail to terminate on any graph with cycles.
+\end{itemize}
+\end{frame}
+\begin{frame}[label={sec:orge0142ed},fragile]{Pluggable data structures in \texttt{ascent}}
+ An eqivilence relation:
+\begin{minted}[]{rust}
+ascent! {
+    relation rel(u32, u32);
+    rel(a,b) <- rel(b, a)
+    rel(a,c) <- rel(a, b), rel(b, c)
+}
+\end{minted}
+will create \(N^2\) facts.
+
+We can store those facts using only \(N\) using a \emph{union-find} data structure:
+\begin{minted}[]{rust}
+ascent! {
+    #[ds(rels_ascent::eqrel)]
+    relation rel(u32, u32);
+    // ...
+}
+\end{minted}
+\end{frame}
+\begin{frame}[label={sec:org339d530},fragile]{Pluggable data structures in \texttt{ascent}}
+ (Sahebolamri, Arash and Barrett, Langston and Moore, Scott and Micinski, Kristopher, 2023) describes an interface to store relations in user-defined data structures.
+
+Users implement several macros, which are then expanded by the \texttt{ascent!} macro.
+\end{frame}
+\begin{frame}[label={sec:orgeb6798e}]{Performance}
+TODO
+\end{frame}
+\begin{frame}[label={sec:org8fc791a}]{Why use a Datalog solver at all?}
+\begin{itemize}
+\item Split one hard problem into two slightly easier problems:
+\begin{itemize}
+\item A Datalog solver
+\item A Datalog program
+\end{itemize}
+\end{itemize}
+
+Separate the specification and the implementation of your problem.
+\end{frame}
+\begin{frame}[label={sec:orgb3662ae},fragile]{Downsides of \texttt{ascent}}
+ \begin{itemize}
+\item the proc-macro implementation seems to make it difficult to write an extensible tool.
+\end{itemize}
+\end{frame}
+\section{An important quantum optimisation problem}
+\label{sec:org9f557be}
+\begin{frame}[label={sec:org337a0f6},fragile]{Can't optimise this}
+ \begin{minted}[]{python}
+@guppy
+def circuit(q: Qubit) -> Qubit:
+    i = 0
+    while i < 2:
+        u = h(Qubit())
+        if i % 2 == 0:
+            q, u = cx(q, u)
+        else:
+            q, u = cy(q, u)
+        i = i + 1
+        u.free()
+    return q
+\end{minted}
+\end{frame}
+\begin{frame}[label={sec:org4a345aa},fragile]{Can optimise this}
+ \begin{minted}[]{python}
+@guppy
+def circuit(q: Qubit) -> Qubit:
+  u1, u2 = (Qubit(), Qubit())
+  u1 = h(u1)
+  q, u1 = cx(q, u1)
+  u2 = h(u2)
+  q, u2 = cy(q, u2)
+  u1.free()
+  u2.free()
+  return q
+\end{minted}
+\end{frame}
+\begin{frame}[label={sec:org09a7548}]{Dataflow analysis}
+\emph{Dataflow Analysis} is a general technique for static program analysis. \emph{SSA} is particularly well suited for this:
+\begin{itemize}
+\item Choose a \emph{Lattice} type with a \emph{bottom}.
+\item Assign \(\bot\) to each edge. (i.e. each ``value'' in an SSA graph)
+\item Define a \emph{transfer function} that takes a node and Lattice values for each of its edges, and returns Lattice values for each of its edges.
+\item Apply the transfer function to each node and mutate the Lattice values for each of its edges by \emph{joining} with the result of the transfer function.
+\item Iterate the previous step until you reach a fixed point.
+\end{itemize}
+\end{frame}
+\begin{frame}[label={sec:org1ba4bb6},fragile]{Liveness Analysis}
+ Lattice: Define \(\bot\) to be \emph{Dead} and \(\top\) to be \emph{Live}.
+
+Transfer function: The arguments of \texttt{return} are \emph{Live}, the arguments of any node with \emph{Live} results are \emph{Live}.
+
+\begin{minted}[]{python}
+@guppy
+def circuit(q: Qubit, theta: float) -> Qubit: # theta is dead
+    theta = -theta
+    return q # q is live
+\end{minted}
+\end{frame}
+\begin{frame}[label={sec:orgaeaade6},fragile]{Constant Value Propagation}
+ \begin{onlyenv}<1->
+Define the following lattice:
+
+\begin{minted}[]{rust}
+enum ConstantValue { Bottom, Value(u64), Top }
+fn join(lhs: ConstantValue, rhs: ConstantValue) -> ConstantValue {
+  match (lhs, rhs) {
+    (Bottom, x) => x,
+    (x, Bottom) => x,
+    (Value(x), Value(y)) if x == y => Value(x),
+    _ => Top
+  }
+}
+\end{minted}
+\end{onlyenv}
+\begin{onlyenv}<1>
+Transfer Function: this is constant folding.
+
+Consider:
+\begin{itemize}
+\item add(Value(x),Value(y))
+\item mult(Top,Value(0))
+\end{itemize}
+\end{onlyenv}
+\begin{onlyenv}<2>
+\begin{itemize}
+\item After iterating the transfer function, if any node has a \(\bot\) input, then that node is \emph{Unreachable}. Perhaps it is in the \emph{else} branch of an always-true \emph{if} statement.
+
+\begin{itemize}
+\item Theorem: Values of type \emph{The sum of zero variants} (also called \(\bot\)). Will always be assigned the lattice value \(\bot\).
+\end{itemize}
+
+\item Liveness analysis should only mark the inputs of \emph{Reachable} \texttt{return} statements.
+\end{itemize}
+\end{onlyenv}
+\end{frame}
+\begin{frame}[label={sec:org9d7d180},fragile]{PartialValue}
+ \begin{minted}[]{rust}
+enum PartialValue {
+    Bottom,
+    Value(hugr::ops::Value),
+    PartialSum(HashSet<usize, Vec<PartialValue>>),
+    Top
+}
+\end{minted}
+
+\begin{itemize}
+\item \emph{PartialValue} refines the idea of \emph{ConstantValue} to try a little bit harder to not \emph{join} to \(\top\).
+
+\item \emph{PartialSum} keeps track of which variant it might be, and what those variant's values might be.
+
+\item In a \emph{Hugr} all non-function call control flow is controlled by the \emph{tag} of a variant.
+\begin{itemize}
+\item Conditional
+\item TailLoop
+\item CFG (arbitrary control flow graph)
+\end{itemize}
+
+\item Let's look at \texttt{dataflow.rs} in \url{https://github.com/CQCL/hugr/tree/doug/const-fold2-talk}
+\end{itemize}
+\end{frame}
+\begin{frame}[label={sec:org90ed210},fragile]{Loop unrolling}
+ Imagine a function:
+
+\begin{minted}[]{rust}
+/// Apply constant value propagation to the inner DFG of a
+/// dataflow parent, using `in_values` as the values for the
+/// `Input` node. Returns the values for the `Output` node
+pub fn cvp_dataflow_parent(hugr: &Hugr, dataflow_parent: Node,
+        in_values: Vec[PartialValue]) -> Vec[PartialValue];
+\end{minted}
+
+We can use this to unroll a \texttt{TailLoop} node \texttt{tl}:
+\begin{itemize}
+\item Do constant value propagation on the \texttt{hugr: Hugr}, and retrieve the input values for the \texttt{tl}.
+\begin{itemize}
+\item Call \texttt{let out\_values = cvp\_dataflow\_parent(hugr, tl, in\_values);}.
+\item if \texttt{!out\_values[0].supports\_tag(1)} then the tailloop is proven to iterate at least once.
+\item Create a \texttt{DFG} before \texttt{tl}, containing a copy of \texttt{tl}, wired up to the old inputs of \texttt{tl}, and with its
+outputs becoming the new inputs of \texttt{tl}.
+\item set \texttt{in\_values = out\_values} and iterate.
+\end{itemize}
+\end{itemize}
+\end{frame}
+\section{Conclusion}
+\label{sec:orgdb585cc}
+\begin{itemize}
+\item Dataflow Analysis is a useful tool and Hugrs are well suited for it to be
+directly applied. (Heidemann, ????)
+\item Constant Value Propagation is strong enough to unroll loops in Hugr.
+\item It is not clear whether \texttt{ascent} is an appropriate tool. How can write modular interdependent analases?.
+\end{itemize}
+\end{document}
