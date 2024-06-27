@@ -1,4 +1,4 @@
-% Created 2024-06-27 Thu 15:24
+% Created 2024-06-27 Thu 15:57
 % Intended LaTeX compiler: pdflatex
 \documentclass[presentation]{beamer}
 \usepackage[utf8]{inputenc}
@@ -13,6 +13,8 @@
 \usepackage{capt-of}
 \usepackage{hyperref}
 \usepackage{minted}
+\usepackage[backend=bibtex]{biblatex}
+\bibliography{bib.bib}
 \usetheme{Madrid}
 \author{\href{mailto:douglas.wilson@quantinuum.com}{Douglas Wilson}}
 \date{\today}
@@ -32,8 +34,8 @@
 \end{frame}
 
 \section{Datalog}
-\label{sec:org7223913}
-\begin{frame}<1->[label={sec:orgee00de9},fragile]{Example}
+\label{sec:orgb46bb52}
+\begin{frame}<1->[label={sec:orge6459bd},fragile]{Example}
  \begin{minted}[]{rust}
 ascent! {
    relation edge(i32, i32);
@@ -76,7 +78,7 @@ fn main() {
 Datalog is tractable to solve because of \emph{semi-naive evaluation}. Once a fact exists it always exists, therefore during an iteration we know that any new fact we find must depend on a fact that we discovered in the previous iteration.
 \end{onlyenv}
 \end{frame}
-\begin{frame}[label={sec:org276e755},fragile]{Conditions and Generative Clauses}
+\begin{frame}[label={sec:orgf0e83be},fragile]{Conditions and Generative Clauses}
  \begin{minted}[]{rust}
 ascent! {
    relation node(i32, Rc<Vec<i32>>);
@@ -89,7 +91,7 @@ ascent! {
 }
 \end{minted}
 \end{frame}
-\begin{frame}[label={sec:orge56f7f8},fragile]{Negation and Aggregation}
+\begin{frame}[label={sec:org209f323},fragile]{Negation and Aggregation}
  \begin{minted}[]{rust}
 use ascent::aggregators::*;
 type Student = u32;
@@ -106,7 +108,7 @@ ascent! {
 }
 \end{minted}
 \end{frame}
-\begin{frame}[label={sec:orgdd26c00}]{Lattices}
+\begin{frame}[label={sec:org135b707}]{Lattices}
 A \emph{Lattice} is a partial order equipped with:
 \begin{itemize}
 \item a binary operation \emph{join}, or least upper bound;
@@ -115,7 +117,7 @@ A \emph{Lattice} is a partial order equipped with:
 
 A \emph{Bounded Lattice} has a unique maximum element, called \emph{top} or \(\top\) and a unique minimum element called \emph{bottom} or \(\bot\).
 \end{frame}
-\begin{frame}[label={sec:orgbadc3c1},fragile]{Lattices In \texttt{ascent}}
+\begin{frame}[label={sec:orgaac534e},fragile]{Lattices in \texttt{ascent}}
  \begin{minted}[]{rust}
 ascent! {
    lattice shortest_path(i32, i32, Dual<u32>);
@@ -134,7 +136,7 @@ ascent! {
 \item \texttt{Dual} is a newtype wrapper that swaps \emph{meet} and \emph{join}. Unfortunately \texttt{longest\_path} will fail to terminate on any graph with cycles.
 \end{itemize}
 \end{frame}
-\begin{frame}[label={sec:orge0142ed},fragile]{Pluggable data structures in \texttt{ascent}}
+\begin{frame}[label={sec:org5fe676d},fragile]{Pluggable data structures in \texttt{ascent}}
  An eqivilence relation:
 \begin{minted}[]{rust}
 ascent! {
@@ -154,15 +156,15 @@ ascent! {
 }
 \end{minted}
 \end{frame}
-\begin{frame}[label={sec:org339d530},fragile]{Pluggable data structures in \texttt{ascent}}
+\begin{frame}[label={sec:org56b2971},fragile]{Pluggable data structures in \texttt{ascent}}
  (Sahebolamri, Arash and Barrett, Langston and Moore, Scott and Micinski, Kristopher, 2023) describes an interface to store relations in user-defined data structures.
 
 Users implement several macros, which are then expanded by the \texttt{ascent!} macro.
 \end{frame}
-\begin{frame}[label={sec:orgeb6798e}]{Performance}
+\begin{frame}[label={sec:org2e9837a}]{Performance}
 TODO
 \end{frame}
-\begin{frame}[label={sec:org8fc791a}]{Why use a Datalog solver at all?}
+\begin{frame}[label={sec:org562d44d}]{Why use a Datalog solver at all?}
 \begin{itemize}
 \item Split one hard problem into two slightly easier problems:
 \begin{itemize}
@@ -173,14 +175,31 @@ TODO
 
 Separate the specification and the implementation of your problem.
 \end{frame}
-\begin{frame}[label={sec:orgb3662ae},fragile]{Downsides of \texttt{ascent}}
+\begin{frame}[label={sec:org1f4e5c2},fragile]{Evaluation of \texttt{ascent}}
  \begin{itemize}
+\item It seems that the only other datalog-style tool supporting lattices is: \url{https://github.com/flix/flix}
+\end{itemize}
+(on the JVM)
+
+\begin{itemize}
+\item You can generate a multi-threaded solver by calling a \texttt{ascent\_par!} instead of \texttt{ascent!} and ensuring all your types are \texttt{: Sync + Send} .
+
 \item the proc-macro implementation seems to make it difficult to write an extensible tool.
+\end{itemize}
+
+Alternatives available in rust:
+\begin{itemize}
+\item \url{https://github.com/timelydataflow/differential-dataflow}
+\item \url{https://github.com/TimelyDataflow/timely-dataflow}
+\item \url{https://github.com/hydro-project/hydroflow}
+\item \url{https://github.com/cozodb/cozo}
+\item \url{https://github.com/rust-lang/datafrog}:
+Very simple, maybe that's good.
 \end{itemize}
 \end{frame}
 \section{An important quantum optimisation problem}
-\label{sec:org9f557be}
-\begin{frame}[label={sec:org337a0f6},fragile]{Can't optimise this}
+\label{sec:org6f1f634}
+\begin{frame}[label={sec:orgd92d9c2},fragile]{Can't optimise this}
  \begin{minted}[]{python}
 @guppy
 def circuit(q: Qubit) -> Qubit:
@@ -196,7 +215,7 @@ def circuit(q: Qubit) -> Qubit:
     return q
 \end{minted}
 \end{frame}
-\begin{frame}[label={sec:org4a345aa},fragile]{Can optimise this}
+\begin{frame}[label={sec:orgf1543fa},fragile]{Can optimise this}
  \begin{minted}[]{python}
 @guppy
 def circuit(q: Qubit) -> Qubit:
@@ -210,7 +229,7 @@ def circuit(q: Qubit) -> Qubit:
   return q
 \end{minted}
 \end{frame}
-\begin{frame}[label={sec:org09a7548}]{Dataflow analysis}
+\begin{frame}[label={sec:orgacf7205}]{Dataflow analysis}
 \emph{Dataflow Analysis} is a general technique for static program analysis. \emph{SSA} is particularly well suited for this:
 \begin{itemize}
 \item Choose a \emph{Lattice} type with a \emph{bottom}.
@@ -220,7 +239,7 @@ def circuit(q: Qubit) -> Qubit:
 \item Iterate the previous step until you reach a fixed point.
 \end{itemize}
 \end{frame}
-\begin{frame}[label={sec:org1ba4bb6},fragile]{Liveness Analysis}
+\begin{frame}[label={sec:org8bffd0c},fragile]{Liveness Analysis}
  Lattice: Define \(\bot\) to be \emph{Dead} and \(\top\) to be \emph{Live}.
 
 Transfer function: The arguments of \texttt{return} are \emph{Live}, the arguments of any node with \emph{Live} results are \emph{Live}.
@@ -232,7 +251,7 @@ def circuit(q: Qubit, theta: float) -> Qubit: # theta is dead
     return q # q is live
 \end{minted}
 \end{frame}
-\begin{frame}[label={sec:orgaeaade6},fragile]{Constant Value Propagation}
+\begin{frame}[label={sec:org496c398},fragile]{Constant Value Propagation}
  \begin{onlyenv}<1->
 Define the following lattice:
 
@@ -269,7 +288,7 @@ Consider:
 \end{itemize}
 \end{onlyenv}
 \end{frame}
-\begin{frame}[label={sec:org9d7d180},fragile]{PartialValue}
+\begin{frame}[label={sec:org7ace7e2},fragile]{PartialValue}
  \begin{minted}[]{rust}
 enum PartialValue {
     Bottom,
@@ -294,7 +313,7 @@ enum PartialValue {
 \item Let's look at \texttt{dataflow.rs} in \url{https://github.com/CQCL/hugr/tree/doug/const-fold2-talk}
 \end{itemize}
 \end{frame}
-\begin{frame}[label={sec:org90ed210},fragile]{Loop unrolling}
+\begin{frame}[label={sec:orgb41c7db},fragile]{Loop unrolling}
  Imagine a function:
 
 \begin{minted}[]{rust}
@@ -318,11 +337,38 @@ outputs becoming the new inputs of \texttt{tl}.
 \end{itemize}
 \end{frame}
 \section{Conclusion}
-\label{sec:orgdb585cc}
-\begin{itemize}
+\label{sec:org40da867}
+\begin{frame}[label={sec:orgf3af976},fragile]{Conclusion}
+ \begin{itemize}
 \item Dataflow Analysis is a useful tool and Hugrs are well suited for it to be
 directly applied. (Heidemann, ????)
 \item Constant Value Propagation is strong enough to unroll loops in Hugr.
 \item It is not clear whether \texttt{ascent} is an appropriate tool. How can write modular interdependent analases?.
 \end{itemize}
+
+Other concerns a Dataflow Solver must address:
+\begin{itemize}
+\item Provenance: when a black box gives unexpected answers we need a way to debug it.
+\item Controlling resource usage: We have to stop unrolling a loop eventually. We want to be able to tune a solver to try hard, but not too hard, to solve an arbitrary problem.
+\end{itemize}
+\end{frame}
+\begin{frame}[fragile,allowframebreaks,label=]{Bibliography}
+\noindent
+Heidemann (). \emph{Hugr is a Database}.
+
+\noindent
+Herbert Jordan and Bernhard Scholz and Pavle Suboti{\'c} (2016). \emph{Souffl{\'e}: On Synthesis of Program Analyzers}.
+
+\noindent
+Horn, Alfred (1951). \emph{On sentences which are true of direct unions of algebras}, Journal of Symbolic Logic.
+
+\noindent
+Sahebolamri, Arash and Barrett, Langston and Moore, Scott and Micinski, Kristopher (2023). \emph{Bring Your Own Data Structures to Datalog}, Association for Computing Machinery.
+
+\noindent
+Sahebolamri, Arash and Gilray, Thomas and Micinski, Kristopher (2022). \emph{Seamless deductive inference via macros}, Association for Computing Machinery.
+
+\noindent
+Scholz, Bernhard and Jordan, Herbert and Suboti\'{c}, Pavle and Westmann, Till (2016). \emph{On fast large-scale program analysis in Datalog}, Association for Computing Machinery.
+\end{frame}
 \end{document}

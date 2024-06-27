@@ -3,6 +3,8 @@
 #+OPTIONS: H:2 toc:t num:t
 #+LATEX_CLASS: beamer
 #+LATEX_CLASS_OPTIONS: [presentation]
+#+LATEX_HEADER: \usepackage[backend=bibtex]{biblatex}
+#+LATEX_HEADER: \bibliography{bib.bib}
 #+BEAMER_THEME: Madrid
 #+bibliography: bib.bib
 
@@ -127,7 +129,7 @@ A /Lattice/ is a partial order equipped with:
 
 A /Bounded Lattice/ has a unique maximum element, called /top/ or $\top$ and a unique minimum element called /bottom/ or $\bot$.
 
-** Lattices In ~ascent~
+** Lattices in ~ascent~
 #+begin_src rust
 ascent! {
    lattice shortest_path(i32, i32, Dual<u32>);
@@ -179,8 +181,21 @@ TODO
 
 Separate the specification and the implementation of your problem.
 
-** Downsides of ~ascent~
+** Evaluation of ~ascent~
+- It seems that the only other datalog-style tool supporting lattices is: https://github.com/flix/flix
+(on the JVM)
+
+- You can generate a multi-threaded solver by calling a ~ascent_par!~ instead of ~ascent!~ and ensuring all your types are ~: Sync + Send~ .
+
 - the proc-macro implementation seems to make it difficult to write an extensible tool.
+
+Alternatives available in rust:
+- https://github.com/timelydataflow/differential-dataflow
+- https://github.com/TimelyDataflow/timely-dataflow
+- https://github.com/hydro-project/hydroflow
+- https://github.com/cozodb/cozo
+- https://github.com/rust-lang/datafrog:
+  Very simple, maybe that's good.
 
 * An important quantum optimisation problem
 ** Can't optimise this
@@ -320,7 +335,17 @@ We can use this to unroll a ~TailLoop~ node ~tl~:
    - set ~in_values = out_values~ and iterate.
 
 * Conclusion
+** Conclusion
 - Dataflow Analysis is a useful tool and Hugrs are well suited for it to be
   directly applied. [cite:@HugrDatalog]
 - Constant Value Propagation is strong enough to unroll loops in Hugr.
 - It is not clear whether ~ascent~ is an appropriate tool. How can write modular interdependent analases?.
+
+Other concerns a Dataflow Solver must address:
+- Provenance: when a black box gives unexpected answers we need a way to debug it.
+- Controlling resource usage: We have to stop unrolling a loop eventually. We want to be able to tune a solver to try hard, but not too hard, to solve an arbitrary problem.
+** Bibliography
+:PROPERTIES:
+:BEAMER_OPT: fragile,allowframebreaks,label=
+:END:
+#+print_bibliography:
